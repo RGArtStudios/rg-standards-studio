@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  PROPOSER
+  CERTIFIER
+  ADMIN
+}
+
+enum StandardStatus {
+  DRAFT
+  CERTIFIED
+  DEPRECATED
+}
+
+enum ProposalStatus {
+  OPEN
+  INCORPORATED
+  REJECTED
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         UserRole  @default(PROPOSER)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  versions     StandardVersion[] @relation("CertifiedBy")
+  proposals    Proposal[]
+  auditLogs    AuditLog[]
+}
+
+model Standard {
+  id             String         @id @default(cuid())
+  name           String         @unique
+  packageName    String         @unique
+  description    String
+  requiredBy     String[]
+  currentVersion String?
+  status         StandardStatus @default(DRAFT)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  versions       StandardVersion[]
+  proposals      Proposal[]
+}
+
+model StandardVersion {
+  id              String    @id @default(cuid())
+  standardId      String
+  version         String
+  sourceCode      String
+  visualSpec      String?
+  usageExamples   String?
+  testCases       String?
+  previewHtml     String?
+  certifiedById   String?
+  certifiedAt     DateTime?
+  githubPrUrl     String?
+  githubPrNumber  Int?
+  githubPrMerged  Boolean   @default(false)
+  publishedVersion String?
+  createdAt       DateTime  @default(now())
+
+  standard        Standard  @relation(fields: [standardId], references: [id])
+  certifiedBy     User?     @relation("CertifiedBy", fields: [certifiedById], references: [id])
+
+  @@unique([standardId, version])
+}
+
+model Proposal {
+  id          String         @id @default(cuid())
+  standardId  String
+  authorId    String
+  title       String
+  description String
+  diff        String?
+  status      ProposalStatus @default(OPEN)
+  resolvedAt  DateTime?
+  createdAt   DateTime       @default(now())
+
+  standard    Standard       @relation(fields: [standardId], references: [id])
+  author      User           @relation(fields: [authorId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  entity    String
+  entityId  String
+  details   Json?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
