@@ -1,0 +1,53 @@
+name: Deploy — Standards Studio
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION:  us-west-2
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID_STAGING }}.dkr.ecr.us-west-2.amazonaws.com
+  ECS_CLUSTER: rgsaasops-staging-cluster
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID_STAGING }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_STAGING }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context:    .
+          file:       Dockerfile.api
+          push:       true
+          platforms:  linux/arm64
+          tags: |
+            ${{ env.ECR_REGISTRY }}/rg-standards-studio-api:latest
+            ${{ env.ECR_REGISTRY }}/rg-standards-studio-api:${{ github.sha }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+
+      - name: Deploy to ECS
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service rg-standards-studio-api \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+          aws ecs wait services-stable \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --services rg-standards-studio-api \
+            --region ${{ env.AWS_REGION }}
+          echo "✓ Standards Studio deployed"
