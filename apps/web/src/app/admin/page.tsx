@@ -96,7 +96,7 @@ export default function AdminPage() {
                         <code style={{ fontSize: '11px', background: C.surface, padding: '1px 5px', borderRadius: '3px' }}>{log.action}</code>
                       </td>
                       <td style={tdStyle}>
-                        <code style={{ fontSize: '11px', color: C.muted }}>{log.entity}</code>
+                        <code style={{ fontSize: '11px', color: C.muted }}>{log.standard?.name ?? '—'}</code>
                       </td>
                       <td style={tdStyle}>
                         {log.details ? (
