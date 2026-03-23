@@ -1,10 +1,14 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 const C = { primary: '#774435', border: '#E8C5B5', text: '#2C1810', muted: '#A0705A', surface: '#F9F0ED', error: '#DC2626', success: '#059669' }
 
 export default function ResetPasswordPage() {
+  return <Suspense fallback={<div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: C.surface }}>Loading...</div>}><ResetForm /></Suspense>
+}
+
+function ResetForm() {
   const params = useSearchParams()
   const token  = params.get('token')
   const [password,  setPassword]  = useState('')
