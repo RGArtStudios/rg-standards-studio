@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { api, type Standard, type StandardVersion, type Proposal } from '@/lib/api'
-import { useAuth } from '@/app/layout'
+import { useAuth } from '@/app/providers'
 import ClaudeAssistant from '@/components/ClaudeAssistant'
 import FileUpload from '@/components/FileUpload'
 
