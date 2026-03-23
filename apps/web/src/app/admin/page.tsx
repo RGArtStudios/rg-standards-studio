@@ -99,11 +99,7 @@ export default function AdminPage() {
                         <code style={{ fontSize: '11px', color: C.muted }}>{log.standard?.name ?? '—'}</code>
                       </td>
                       <td style={tdStyle}>
-                        {log.details ? (
-                          <pre style={{ margin: 0, fontSize: '10px', maxWidth: 260, overflow: 'auto', whiteSpace: 'pre-wrap', color: C.muted }}>
-                            {JSON.stringify(log.details, null, 1)}
-                          </pre>
-                        ) : '—'}
+                        {'—'}
                       </td>
                     </tr>
                   ))}
