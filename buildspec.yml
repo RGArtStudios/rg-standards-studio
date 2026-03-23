@@ -1,0 +1,25 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - COMMIT=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c1-7)
+
+  build:
+    commands:
+      - echo Building API...
+      - docker build --platform linux/amd64 -f Dockerfile.api -t $API_REPO:latest -t $API_REPO:$COMMIT .
+      - echo Building Web...
+      - docker build --platform linux/amd64 -f Dockerfile.web --build-arg NEXT_PUBLIC_API_URL=$API_URL -t $WEB_REPO:latest -t $WEB_REPO:$COMMIT .
+
+  post_build:
+    commands:
+      - echo Pushing images...
+      - docker push $API_REPO:latest && docker push $API_REPO:$COMMIT
+      - docker push $WEB_REPO:latest && docker push $WEB_REPO:$COMMIT
+      - echo Deploying...
+      - aws ecs update-service --cluster $ECS_CLUSTER --service $API_SERVICE --force-new-deployment --region $AWS_DEFAULT_REGION
+      - aws ecs update-service --cluster $ECS_CLUSTER --service $WEB_SERVICE --force-new-deployment --region $AWS_DEFAULT_REGION
+      - echo Done.

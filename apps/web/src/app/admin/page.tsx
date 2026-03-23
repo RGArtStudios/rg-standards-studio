@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { api, type AuditLog } from '@/lib/api'
-import { useAuth } from '@/app/layout'
+import { useAuth } from '@/app/providers'
 
 const C = { primary: '#774435', border: '#E8C5B5', text: '#2C1810', muted: '#A0705A', surface: '#F9F0ED', success: '#059669', error: '#DC2626' }
 

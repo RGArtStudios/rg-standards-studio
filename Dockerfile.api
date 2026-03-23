@@ -1,0 +1,28 @@
+FROM node:20-alpine AS deps
+WORKDIR /app/apps/api
+RUN apk add --no-cache openssl python3 make g++
+COPY apps/api/package.json ./
+RUN npm install
+
+FROM node:20-alpine AS build
+WORKDIR /app/apps/api
+RUN apk add --no-cache openssl
+COPY --from=deps /app/apps/api/node_modules ./node_modules
+COPY apps/api/ ./
+COPY prisma/ /app/prisma/
+RUN npx prisma generate && npx tsc --outDir dist
+
+FROM node:20-alpine AS runner
+WORKDIR /app/apps/api
+RUN apk add --no-cache curl openssl && addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
+COPY --from=build --chown=nodejs:nodejs /app/apps/api/dist         ./dist
+COPY --from=build --chown=nodejs:nodejs /app/apps/api/node_modules ./node_modules
+COPY --from=build --chown=nodejs:nodejs /app/apps/api/package.json ./
+COPY --from=build --chown=nodejs:nodejs /app/prisma                /app/prisma/
+RUN ln -s /app/apps/api/node_modules /app/prisma/node_modules
+USER nodejs
+ENV NODE_ENV=production PORT=3010
+EXPOSE 3010
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:3010/health || exit 1
+CMD ["node", "dist/index.js"]

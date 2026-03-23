@@ -2,7 +2,7 @@
 import { useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '../../lib/api'
-import { useAuth } from '../layout'
+import { useAuth } from '../providers'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -10,17 +10,14 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const router = useRouter()
-  const { refresh } = useAuth()
+  const { login } = useAuth()
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      const { token } = await api.login(email, password)
-      localStorage.setItem('studio_token', token)
-      await refresh()
-      router.push('/standards')
+      await login(email, password)
     } catch (err: any) {
       setError(err.message || 'Login failed')
     } finally {

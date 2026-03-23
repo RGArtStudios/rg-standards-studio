@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api, Standard } from '../../lib/api'
-import { useAuth } from '../layout'
+import { useAuth } from '../providers'
 
 export default function StandardsListPage() {
   const [standards, setStandards] = useState<Standard[]>([])

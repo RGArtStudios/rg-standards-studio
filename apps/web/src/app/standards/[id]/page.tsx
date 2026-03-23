@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { api, type Standard, type StandardVersion, type Proposal } from '@/lib/api'
-import { useAuth } from '@/app/layout'
+import { useAuth } from '@/app/providers'
 
 const C = {
   primary: '#774435', border: '#E8C5B5', text: '#2C1810',
