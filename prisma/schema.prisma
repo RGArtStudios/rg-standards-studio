@@ -26,6 +26,7 @@ enum ProposalStatus {
 }
 
 model User {
+  uploadedFiles UploadedFile[]
   id           String    @id @default(cuid())
   email        String    @unique
   name         String
@@ -52,6 +53,7 @@ model Standard {
 
   versions       StandardVersion[]
   proposals      Proposal[]
+  uploads        UploadedFile[]
 }
 
 model StandardVersion {
@@ -105,4 +107,21 @@ model AuditLog {
 
   @@index([entity, entityId])
   @@index([createdAt])
+}
+
+// New models to add to the existing schema.prisma
+// Add these AFTER the existing models
+
+model UploadedFile {
+  id           String   @id @default(cuid())
+  filename     String
+  mimeType     String
+  sizeBytes    Int
+  content      String   @db.Text
+  standardId   String?
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  standard     Standard? @relation(fields: [standardId], references: [id], onDelete: SetNull)
+  uploadedBy   User?     @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
 }
