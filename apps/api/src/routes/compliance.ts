@@ -16,7 +16,7 @@ complianceRouter.get('/', requireAuth, async (_req, res) => {
         id: true, name: true, packageName: true,
         currentVersion: true, requiredBy: true,
         versions: {
-          where: { status: 'CERTIFIED' },
+          where: { certifiedAt: { not: null } },
           orderBy: { createdAt: 'desc' },
           take: 1,
           select: { version: true, certifiedAt: true },
@@ -36,8 +36,6 @@ complianceRouter.get('/', requireAuth, async (_req, res) => {
         certifiedVersion: s.currentVersion,
         certifiedAt:    s.versions[0]?.certifiedAt,
         required:       true,
-        // In a real implementation this would check the app's package.json
-        // For now we mark all as needing verification
         status:         s.currentVersion ? 'certified' : 'uncertified',
       }))
       const certified = rows.filter(r => r.status === 'certified').length
@@ -75,7 +73,7 @@ complianceRouter.get('/:app', requireAuth, async (req, res) => {
     if (!APPS.includes(app)) return res.status(404).json({ error: 'Unknown app' })
     const standards = await prisma.standard.findMany({
       where: {
-        requiredBy: { array_contains: app },
+        requiredBy: { has: app },
       },
       include: {
         versions: {
