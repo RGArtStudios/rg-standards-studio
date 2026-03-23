@@ -2,7 +2,9 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { api, type Standard, type StandardVersion, type Proposal } from '@/lib/api'
-import { useAuth } from '@/app/providers'
+import { useAuth } from '@/app/layout'
+import ClaudeAssistant from '@/components/ClaudeAssistant'
+import FileUpload from '@/components/FileUpload'
 
 const C = {
   primary: '#774435', border: '#E8C5B5', text: '#2C1810',
@@ -25,49 +27,89 @@ export default function StandardDetailPage() {
   const [certifying, setCertifying] = useState(false)
   const [certMsg,    setCertMsg]    = useState('')
   const [loading,    setLoading]    = useState(true)
+  const [reviewing,  setReviewing]  = useState(false)
+  const [review,     setReview]     = useState('')
+  const [validating, setValidating] = useState(false)
+  const [validation, setValidation] = useState<any>(null)
+  const [showUpload, setShowUpload] = useState(false)
 
   const load = () => {
     api.getStandard(params.id as string)
       .then(d => { setStandard(d.standard); setActiveVer(d.standard.versions?.[0] ?? null) })
-      .catch(console.error)
-      .finally(() => setLoading(false))
+      .catch(console.error).finally(() => setLoading(false))
   }
   useEffect(load, [params.id])
 
   const certify = async () => {
     if (!activeVer) return
     setCertifying(true); setCertMsg('')
-    try {
-      const r = await api.certify(activeVer.id)
-      setCertMsg(r.message); load()
-    } catch (e: any) {
-      setCertMsg(`Error: ${e.message}`)
-    } finally { setCertifying(false) }
+    try { const r = await api.certify(activeVer.id); setCertMsg(r.message); load() }
+    catch (e: any) { setCertMsg(`Error: ${e.message}`) }
+    finally { setCertifying(false) }
   }
 
-  if (loading) return <p style={{ color: C.muted, padding: '20px' }}>Loading…</p>
-  if (!standard) return <p style={{ color: C.error, padding: '20px' }}>Standard not found.</p>
+  const runReview = async () => {
+    if (!standard) return
+    setReviewing(true); setReview(''); setActiveTab('review')
+    try { const r = await api.claudeReview(standard.id); setReview(r.review) }
+    catch (e: any) { setReview(`Error: ${e.message}`) }
+    finally { setReviewing(false) }
+  }
+
+  const runValidation = async () => {
+    if (!activeVer) return
+    setValidating(true); setValidation(null); setActiveTab('validate')
+    try {
+      const r = await api.claudeValidate({
+        sourceCode: activeVer.sourceCode,
+        visualSpec:  activeVer.visualSpec,
+        testCases:   activeVer.testCases,
+        standardName: standard?.name,
+      })
+      setValidation(r)
+    } catch (e: any) { setValidation({ error: e.message }) }
+    finally { setValidating(false) }
+  }
+
+  if (loading) return <p style={{ color: C.muted }}>Loading…</p>
+  if (!standard) return <p style={{ color: C.error }}>Standard not found.</p>
 
   const isCertifier = user && ['CERTIFIER', 'ADMIN'].includes(user.role)
-  const draftVer    = standard.versions?.find(v => !v.certifiedAt)
+  const draftVer    = standard.versions?.find(v => v.status === 'DRAFT')
   const openCount   = standard.proposals?.filter(p => p.status === 'OPEN').length ?? 0
 
   const TABS = [
-    { key: 'preview',   label: '▶ Preview' },
-    { key: 'spec',      label: '📐 Spec' },
-    { key: 'examples',  label: '💡 Usage' },
-    { key: 'tests',     label: '✓ Tests' },
-    { key: 'history',   label: '🕐 History' },
+    { key: 'preview',   label: '▶ Preview'   },
+    { key: 'spec',      label: '📐 Spec'      },
+    { key: 'examples',  label: '💡 Usage'     },
+    { key: 'tests',     label: '✓ Tests'      },
+    { key: 'upload',    label: '↑ Upload'     },
+    { key: 'review',    label: '✦ AI Review'  },
+    { key: 'validate',  label: '✦ Validate'   },
+    { key: 'history',   label: '🕐 History'   },
     { key: 'proposals', label: `💬 Proposals${openCount > 0 ? ` (${openCount})` : ''}` },
   ]
 
+  // Handler for inserting Claude-generated content into draft
+  const handleInsert = async (content: string, field: 'sourceCode' | 'visualSpec' | 'usageExamples' | 'testCases') => {
+    if (!activeVer || activeVer.status !== 'DRAFT') return
+    try {
+      await api.updateVersion(activeVer.id, { [field]: content })
+      load()
+      setCertMsg(`✓ ${field} updated from Claude suggestion`)
+    } catch (e: any) {
+      setCertMsg(`Error updating: ${e.message}`)
+    }
+  }
+
   return (
-    <div style={{ maxWidth: '920px' }}>
+    <div style={{ maxWidth: '960px' }}>
       <a href="/" style={{ fontSize: '12px', color: C.muted, textDecoration: 'none' }}>← All Standards</a>
 
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', margin: '12px 0 20px', gap: '16px' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '3px' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', margin: '12px 0 20px', gap: '16px', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: '200px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '3px', flexWrap: 'wrap' }}>
             <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 800, color: C.text }}>{standard.name}</h1>
             <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 9px', borderRadius: '99px', background: STATUS[standard.status]?.bg, color: STATUS[standard.status]?.color }}>
               {standard.status}{standard.currentVersion ? ` ${standard.currentVersion}` : ''}
@@ -83,12 +125,37 @@ export default function StandardDetailPage() {
             </div>
           )}
         </div>
-        {isCertifier && draftVer && activeVer && !activeVer.certifiedAt && (
-          <button onClick={certify} disabled={certifying}
-            style={{ flexShrink: 0, padding: '9px 18px', background: C.success, color: 'white', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 700, cursor: certifying ? 'not-allowed' : 'pointer', opacity: certifying ? 0.7 : 1 }}>
-            {certifying ? 'Certifying…' : `Certify ${draftVer.version}`}
-          </button>
-        )}
+
+        <div style={{ display: 'flex', gap: '7px', flexWrap: 'wrap', flexShrink: 0 }}>
+          {standard.packageName === '@rg/branding' && isCertifier && (
+            <a href={`/standards/${standard.id}/brand-editor`}
+              style={{ padding: '8px 14px', background: 'white', color: C.primary, border: `1.5px solid ${C.primary}`, borderRadius: '8px', fontSize: '12px', fontWeight: 600, textDecoration: 'none' }}>
+              🎨 Brand Editor
+            </a>
+          )}
+          {isCertifier && (
+            <button onClick={runReview} disabled={reviewing}
+              style={{ padding: '8px 14px', background: 'white', color: C.primary, border: `1.5px solid ${C.primary}`, borderRadius: '8px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', opacity: reviewing ? 0.6 : 1 }}>
+              {reviewing ? '…' : '✦ AI Review'}
+            </button>
+          )}
+          {isCertifier && activeVer && (
+            <button onClick={runValidation} disabled={validating}
+              style={{ padding: '8px 14px', background: 'white', color: C.primary, border: `1.5px solid ${C.primary}`, borderRadius: '8px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', opacity: validating ? 0.6 : 1 }}>
+              {validating ? '…' : '✦ Validate'}
+            </button>
+          )}
+          {isCertifier && draftVer && activeVer?.status === 'DRAFT' && (
+            <button onClick={certify} disabled={certifying}
+              style={{ padding: '8px 18px', background: C.success, color: 'white', border: 'none', borderRadius: '8px', fontSize: '12px', fontWeight: 700, cursor: 'pointer', opacity: certifying ? 0.7 : 1 }}>
+              {certifying ? 'Certifying…' : `Certify ${draftVer.version}`}
+            </button>
+          )}
+          <a href={`/standards/${standard.id}/edit`}
+            style={{ padding: '8px 14px', background: 'white', color: C.muted, border: `1px solid ${C.border}`, borderRadius: '8px', fontSize: '12px', textDecoration: 'none' }}>
+            + New Draft
+          </a>
+        </div>
       </div>
 
       {certMsg && (
@@ -103,38 +170,127 @@ export default function StandardDetailPage() {
         </div>
       )}
 
+      {/* Version selector */}
       {(standard.versions?.length ?? 0) > 1 && (
         <div style={{ display: 'flex', gap: '6px', marginBottom: '14px', flexWrap: 'wrap' }}>
           {standard.versions?.map(v => (
             <button key={v.id} onClick={() => setActiveVer(v)}
               style={{ padding: '4px 12px', borderRadius: '99px', fontSize: '12px', fontWeight: 600, cursor: 'pointer', border: `1.5px solid ${activeVer?.id === v.id ? C.primary : C.border}`, background: activeVer?.id === v.id ? C.surface : 'white', color: activeVer?.id === v.id ? C.primary : C.muted }}>
-              {v.version}{v.certifiedAt ? ' ✓' : ' (draft)'}
+              {v.version}{v.status === 'CERTIFIED' ? ' ✓' : v.status === 'DRAFT' ? ' (draft)' : ''}
             </button>
           ))}
         </div>
       )}
 
-      <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: '20px' }}>
+      {/* Tabs */}
+      <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, marginBottom: '20px', flexWrap: 'wrap' }}>
         {TABS.map(t => (
-          <button key={t.key} onClick={() => setActiveTab(t.key)}
-            style={{ padding: '9px 16px', fontSize: '12px', fontWeight: 500, cursor: 'pointer', background: 'none', border: 'none', borderBottom: activeTab === t.key ? `2px solid ${C.primary}` : '2px solid transparent', color: activeTab === t.key ? C.primary : C.muted, marginBottom: '-1px' }}>
+          <button key={t.key} onClick={() => { setActiveTab(t.key); if (t.key === 'review' && !review) runReview(); if (t.key === 'validate' && !validation) runValidation() }}
+            style={{ padding: '8px 14px', fontSize: '12px', fontWeight: 500, cursor: 'pointer', background: 'none', border: 'none', borderBottom: activeTab === t.key ? `2px solid ${C.primary}` : '2px solid transparent', color: activeTab === t.key ? C.primary : C.muted, marginBottom: '-1px', whiteSpace: 'nowrap' }}>
             {t.label}
           </button>
         ))}
       </div>
 
+      {/* Tab content */}
       {activeVer && (
         <>
-          {activeTab === 'preview'   && <LivePreview sourceCode={activeVer.sourceCode} packageName={standard.packageName} />}
-          {activeTab === 'spec'      && <MDView content={activeVer.visualSpec} />}
-          {activeTab === 'examples'  && <MDView content={activeVer.usageExamples} />}
-          {activeTab === 'tests'     && <MDView content={activeVer.testCases} />}
+          {activeTab === 'preview'  && <LivePreview sourceCode={activeVer.sourceCode} packageName={standard.packageName} />}
+          {activeTab === 'spec'     && <MDView content={activeVer.visualSpec} />}
+          {activeTab === 'examples' && <MDView content={activeVer.usageExamples} />}
+          {activeTab === 'tests'    && <MDView content={activeVer.testCases} />}
+
+          {activeTab === 'upload' && (
+            <div>
+              <p style={{ fontSize: '13px', color: C.muted, marginBottom: '14px' }}>
+                Upload any file — TypeScript, Markdown, DOCX, JSON. Claude will analyze it and offer to use it as source code, spec, or to create a new standard.
+              </p>
+              <FileUpload
+                standardId={standard.id}
+                onSourceExtracted={src => { handleInsert(src, 'sourceCode'); setActiveTab('preview') }}
+                onSpecExtracted={spec => { handleInsert(spec, 'visualSpec'); setActiveTab('spec') }}
+              />
+            </div>
+          )}
+
+          {activeTab === 'review' && (
+            <div>
+              {reviewing && <p style={{ color: C.muted, fontSize: '13px' }}>✦ Claude is reviewing this standard…</p>}
+              {review && <div style={{ fontSize: '13px', lineHeight: 1.7 }} dangerouslySetInnerHTML={{ __html: mdToHtml(review) }} />}
+            </div>
+          )}
+
+          {activeTab === 'validate' && (
+            <div>
+              {validating && <p style={{ color: C.muted, fontSize: '13px' }}>✦ Claude is validating source against spec…</p>}
+              {validation?.error && <p style={{ color: C.error }}>{validation.error}</p>}
+              {validation && !validation.error && (
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                    <span style={{ fontSize: '32px', fontWeight: 800, color: validation.score >= 75 ? C.success : C.error }}>{validation.score}</span>
+                    <div>
+                      <p style={{ margin: 0, fontWeight: 700, color: validation.valid ? C.success : C.error }}>
+                        {validation.valid ? '✓ Valid' : '✗ Issues found'}
+                      </p>
+                      <p style={{ margin: 0, fontSize: '13px', color: C.muted }}>{validation.summary}</p>
+                    </div>
+                  </div>
+                  {validation.issues?.length > 0 && (
+                    <div style={{ marginBottom: '14px' }}>
+                      <p style={{ margin: '0 0 6px', fontWeight: 600, fontSize: '13px', color: C.error }}>Issues</p>
+                      {validation.issues.map((issue: string, i: number) => (
+                        <p key={i} style={{ margin: '0 0 4px', fontSize: '13px', color: C.text }}>• {issue}</p>
+                      ))}
+                    </div>
+                  )}
+                  {validation.suggestions?.length > 0 && (
+                    <div style={{ marginBottom: '14px' }}>
+                      <p style={{ margin: '0 0 6px', fontWeight: 600, fontSize: '13px', color: C.warning }}>Suggestions</p>
+                      {validation.suggestions.map((s: string, i: number) => (
+                        <p key={i} style={{ margin: '0 0 4px', fontSize: '13px', color: C.text }}>• {s}</p>
+                      ))}
+                    </div>
+                  )}
+                  {validation.passedTests?.length > 0 && (
+                    <div>
+                      <p style={{ margin: '0 0 6px', fontWeight: 600, fontSize: '13px', color: C.success }}>Passing tests</p>
+                      {validation.passedTests.map((t: string, i: number) => (
+                        <p key={i} style={{ margin: '0 0 3px', fontSize: '12px', color: C.muted }}>✓ {t}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {activeTab === 'history'   && <HistoryView versions={standard.versions ?? []} onMerged={load} />}
           {activeTab === 'proposals' && <ProposalsView standardId={standard.id} proposals={standard.proposals ?? []} isCertifier={!!isCertifier} onUpdate={load} />}
         </>
       )}
+
+      {/* Claude Assistant — floating panel */}
+      <ClaudeAssistant
+        standardId={standard.id}
+        standardName={standard.name}
+        onInsert={isCertifier ? handleInsert : undefined}
+      />
     </div>
   )
+}
+
+function mdToHtml(content: string): string {
+  return content
+    .replace(/```[\w]*\n([\s\S]*?)```/g, (_m, c) => `<pre style="background:#1E1B4B;color:#C4B5FD;padding:14px;border-radius:8px;font-size:11px;overflow:auto;line-height:1.6">${c.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`)
+    .replace(/^### (.+)$/gm, '<h3 style="font-size:14px;margin:16px 0 6px">$1</h3>')
+    .replace(/^## (.+)$/gm,  '<h2 style="font-size:16px;margin:20px 0 8px">$1</h2>')
+    .replace(/^# (.+)$/gm,   '<h1 style="font-size:18px;margin:0 0 14px">$1</h1>')
+    .replace(/`([^`]+)`/g,   '<code style="background:#F9F0ED;padding:1px 5px;border-radius:3px;font-size:11px">$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^- \[ \] (.+)$/gm, '<div style="display:flex;gap:7px;align-items:center;margin:4px 0"><input type="checkbox" disabled/> $1</div>')
+    .replace(/^- \[x\] (.+)$/gm, '<div style="display:flex;gap:7px;align-items:center;margin:4px 0"><input type="checkbox" checked disabled/> $1</div>')
+    .replace(/^- (.+)$/gm,   '<li style="margin:3px 0">$1</li>')
+    .replace(/\n\n/g, '<br/><br/>')
 }
 
 function LivePreview({ sourceCode, packageName }: { sourceCode: string; packageName: string }) {
@@ -145,24 +301,25 @@ function LivePreview({ sourceCode, packageName }: { sourceCode: string; packageN
 
   const html = [
     '<!DOCTYPE html><html><head><meta charset="utf-8"/>',
-    '<script src="https://unpkg.com/react@18/umd/react.development.js"><\/script>',
-    '<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script>',
-    '<script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>',
+    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>',
+    '<script src="https://unpkg.com/react@18/umd/react.development.js"></script>',
+    '<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>',
+    '<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>',
     '<style>body{margin:16px;font-family:Inter,system-ui,sans-serif;background:#F9F0ED;color:#2C1810}</style>',
     '</head><body><div id="root"></div><script type="text/babel">',
-    'const colors={primary:"#774435",surfaceAlt:"#F9F0ED",border:"#E8C5B5",text:"#2C1810",textMuted:"#A0705A",verified:"#059669",white:"#fff",black:"#000"};',
-    'const typography={fontSans:"Inter,system-ui,sans-serif",fontMono:"monospace"};',
+    'const colors={primary:"#774435",primaryHover:"#5C3228",sidebar:"#A96D53",surfaceAlt:"#F9F0ED",border:"#E8C5B5",text:"#2C1810",textMuted:"#A0705A",verified:"#059669",tierEnhanced:"#2563EB",tierPriority:"#7C3AED",white:"#fff",black:"#000"};',
+    'const typography={fontSans:"\'Inter\',system-ui,sans-serif",fontMono:"monospace",fontSizes:{base:"1rem"},fontWeights:{normal:400,bold:700}};',
     'const radii={sm:"4px",md:"6px",lg:"10px",xl:"14px","2xl":"20px",full:"9999px"};',
     'const shadows={sm:"0 1px 2px rgba(0,0,0,.05)",md:"0 4px 6px rgba(0,0,0,.1)"};',
-    'const spacing={"0":"0","1":"4px","2":"8px","3":"12px","4":"16px","5":"20px","6":"24px","8":"32px"};',
+    'const spacing={"1":"4px","2":"8px","4":"16px","6":"24px","8":"32px"};',
     prepared,
     'const exp=window.__exp__||{};',
     'const name=Object.keys(exp).find(k=>/^[A-Z]/.test(k)&&typeof exp[k]==="function");',
     'const Comp=name?exp[name]:window.__default__;',
     'const root=document.getElementById("root");',
     'if(typeof Comp==="function"){ReactDOM.createRoot(root).render(React.createElement("div",null,React.createElement("p",{style:{fontSize:"11px",color:"#A0705A",marginBottom:"10px"}},"Preview: "+(name||"default")),React.createElement(Comp,null)));}',
-    'else{root.innerHTML="<p style=\'color:#A0705A;font-size:13px\'>No renderable component — exports utilities or types. See the Usage tab.</p>";}',
-    '<\/script></body></html>',
+    'else{root.innerHTML="<div style=\'color:#A0705A;font-size:13px;padding:8px\'>No renderable component — this package exports utilities or types. See the Source tab.</div>";}',
+    '</script></body></html>',
   ].join('\n')
 
   return (
@@ -179,20 +336,8 @@ function LivePreview({ sourceCode, packageName }: { sourceCode: string; packageN
   )
 }
 
-function MDView({ content }: { content: string | null }) {
-  if (!content) return <p style={{ color: C.muted, fontSize: '13px' }}>No content.</p>
-  const html = content
-    .replace(/```[\w]*\n([\s\S]*?)```/g, (_m, c) => `<pre style="background:#1E1B4B;color:#C4B5FD;padding:14px;border-radius:8px;font-size:11px;overflow:auto;line-height:1.6">${c.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`)
-    .replace(/^### (.+)$/gm, '<h3 style="color:#2C1810;font-size:14px;margin:16px 0 6px">$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2 style="color:#2C1810;font-size:16px;margin:20px 0 8px">$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1 style="color:#2C1810;font-size:20px;margin:0 0 14px">$1</h1>')
-    .replace(/`([^`]+)`/g, '<code style="background:#F9F0ED;padding:1px 5px;border-radius:3px;font-size:11px">$1</code>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/^- \[ \] (.+)$/gm, '<div style="display:flex;gap:7px;align-items:center;margin:4px 0"><input type="checkbox" disabled/> $1</div>')
-    .replace(/^- \[x\] (.+)$/gm, '<div style="display:flex;gap:7px;align-items:center;margin:4px 0"><input type="checkbox" checked disabled/> $1</div>')
-    .replace(/^- (.+)$/gm, '<li style="margin:3px 0">$1</li>')
-    .replace(/\n\n/g, '<br/><br/>')
-  return <div style={{ fontSize: '13px', lineHeight: 1.7, color: C.text }} dangerouslySetInnerHTML={{ __html: html }} />
+function MDView({ content }: { content: string }) {
+  return <div style={{ fontSize: '13px', lineHeight: 1.7, color: C.text }} dangerouslySetInnerHTML={{ __html: mdToHtml(content) }} />
 }
 
 function HistoryView({ versions, onMerged }: { versions: StandardVersion[]; onMerged: () => void }) {
@@ -204,22 +349,17 @@ function HistoryView({ versions, onMerged }: { versions: StandardVersion[]; onMe
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={{ fontWeight: 800, fontSize: '14px', color: C.text }}>{v.version}</span>
-              <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 7px', borderRadius: '99px', background: v.certifiedAt ? STATUS.CERTIFIED.bg : STATUS.DRAFT.bg, color: v.certifiedAt ? STATUS.CERTIFIED.color : STATUS.DRAFT.color }}>
-                {v.certifiedAt ? 'CERTIFIED' : 'DRAFT'}
-              </span>
+              <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 7px', borderRadius: '99px', background: STATUS[v.status]?.bg, color: STATUS[v.status]?.color }}>{v.status}</span>
             </div>
             <span style={{ fontSize: '11px', color: C.muted }}>
-              {v.certifiedAt
-                ? `Certified ${new Date(v.certifiedAt).toLocaleDateString()}${v.certifiedBy ? ` by ${v.certifiedBy.name}` : ''}`
-                : `Created ${new Date(v.createdAt).toLocaleDateString()}`}
+              {v.certifiedAt ? `Certified ${new Date(v.certifiedAt).toLocaleDateString()}${v.certifiedBy ? ` by ${v.certifiedBy.name}` : ''}` : `Created ${new Date(v.createdAt).toLocaleDateString()}`}
             </span>
           </div>
-          {v.githubPrUrl && (
+          {v.changelog && <p style={{ margin: '8px 0 0', fontSize: '13px', color: C.text, lineHeight: 1.5 }}>{v.changelog}</p>}
+          {v.prUrl && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
-              <a href={v.githubPrUrl} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: C.primary }}>
-                View PR → {v.githubPrMerged ? '(merged)' : '(pending merge)'}
-              </a>
-              {!v.githubPrMerged && (
+              <a href={v.prUrl} target="_blank" rel="noreferrer" style={{ fontSize: '12px', color: C.primary }}>View PR → {v.prMerged ? '(merged)' : '(pending)'}</a>
+              {!v.prMerged && (
                 <button onClick={() => api.markPrMerged(v.id).then(onMerged)}
                   style={{ fontSize: '11px', padding: '2px 8px', border: `1px solid ${C.success}`, borderRadius: '6px', background: 'none', color: C.success, cursor: 'pointer' }}>
                   Mark Merged
@@ -241,30 +381,29 @@ function ProposalsView({ standardId, proposals, isCertifier, onUpdate }: { stand
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setSub(true)
-    try {
-      await api.submitProposal({ standardId, title, description: desc })
-      setShowForm(false); setTitle(''); setDesc(''); onUpdate()
-    } catch (err: any) { alert(err.message) }
+    try { await api.submitProposal({ standardId, title, description: desc }); setShowForm(false); setTitle(''); setDesc(''); onUpdate() }
+    catch (err: any) { alert(err.message) }
     finally { setSub(false) }
   }
 
   const resolve = async (id: string, status: 'INCORPORATED' | 'REJECTED') => {
-    try { await api.updateProposal(id, { status }); onUpdate() }
+    const note = status === 'REJECTED' ? prompt('Rejection reason (optional):') ?? undefined : undefined
+    try { await api.updateProposal(id, { status, rejectionNote: note }); onUpdate() }
     catch (err: any) { alert(err.message) }
   }
 
   const PS: Record<string, { bg: string; color: string }> = {
-    OPEN:         { bg: 'rgba(37,99,235,.1)',    color: '#1D4ED8' },
-    INCORPORATED: { bg: 'rgba(5,150,105,.12)',   color: C.success },
-    REJECTED:     { bg: 'rgba(107,114,128,.12)', color: C.muted   },
+    OPEN:         { bg: 'rgba(37,99,235,.1)',   color: '#1D4ED8' },
+    INCORPORATED: { bg: 'rgba(5,150,105,.12)',  color: C.success },
+    REJECTED:     { bg: 'rgba(107,114,128,.12)',color: C.muted   },
   }
+
+  const inputStyle = { width: '100%', padding: '8px 10px', borderRadius: '7px', border: `1.5px solid ${C.border}`, fontSize: '13px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' as const }
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-        <p style={{ margin: 0, fontSize: '13px', color: C.muted }}>
-          {proposals.filter(p => p.status === 'OPEN').length} open proposal{proposals.filter(p => p.status === 'OPEN').length !== 1 ? 's' : ''}
-        </p>
+        <p style={{ margin: 0, fontSize: '13px', color: C.muted }}>{proposals.filter(p => p.status === 'OPEN').length} open proposals</p>
         <button onClick={() => setShowForm(!showForm)}
           style={{ padding: '7px 14px', background: C.primary, color: 'white', border: 'none', borderRadius: '7px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
           + Propose Change
@@ -273,45 +412,31 @@ function ProposalsView({ standardId, proposals, isCertifier, onUpdate }: { stand
 
       {showForm && (
         <form onSubmit={submit} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: '10px', padding: '16px', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          <input value={title} onChange={e => setTitle(e.target.value)} required placeholder="Proposal title"
-            style={{ padding: '8px 10px', borderRadius: '7px', border: `1.5px solid ${C.border}`, fontSize: '13px', outline: 'none', fontFamily: 'inherit' }} />
-          <textarea value={desc} onChange={e => setDesc(e.target.value)} required rows={3} placeholder="Describe what should change and why…"
-            style={{ padding: '8px 10px', borderRadius: '7px', border: `1.5px solid ${C.border}`, fontSize: '13px', outline: 'none', resize: 'vertical' as const, fontFamily: 'inherit' }} />
+          <input value={title} onChange={e => setTitle(e.target.value)} required placeholder="Proposal title" style={inputStyle} />
+          <textarea value={desc} onChange={e => setDesc(e.target.value)} required rows={3} placeholder="Describe what should change and why…" style={{ ...inputStyle, resize: 'vertical' as const }} />
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button type="submit" disabled={sub}
-              style={{ padding: '7px 16px', background: C.primary, color: 'white', border: 'none', borderRadius: '7px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
-              {sub ? 'Submitting…' : 'Submit'}
-            </button>
-            <button type="button" onClick={() => setShowForm(false)}
-              style={{ padding: '7px 12px', background: 'none', border: `1px solid ${C.border}`, borderRadius: '7px', fontSize: '12px', cursor: 'pointer' }}>
-              Cancel
-            </button>
+            <button type="submit" disabled={sub} style={{ padding: '7px 16px', background: C.primary, color: 'white', border: 'none', borderRadius: '7px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>{sub ? 'Submitting…' : 'Submit'}</button>
+            <button type="button" onClick={() => setShowForm(false)} style={{ padding: '7px 12px', background: 'none', border: `1px solid ${C.border}`, borderRadius: '7px', fontSize: '12px', cursor: 'pointer' }}>Cancel</button>
           </div>
         </form>
       )}
 
-      {proposals.length === 0 && <p style={{ color: C.muted, fontSize: '13px' }}>No proposals yet. Be the first to propose a change.</p>}
-
+      {proposals.length === 0 && <p style={{ color: C.muted, fontSize: '13px' }}>No proposals yet.</p>}
       {proposals.map(p => (
         <div key={p.id} style={{ padding: '14px 18px', background: 'white', border: `1px solid ${C.border}`, borderRadius: '10px', marginBottom: '8px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
               <p style={{ margin: '0 0 2px', fontWeight: 600, fontSize: '14px', color: C.text }}>{p.title}</p>
-              <p style={{ margin: 0, fontSize: '11px', color: C.muted }}>by {p.author.name} · {new Date(p.createdAt).toLocaleDateString()}</p>
+              <p style={{ margin: 0, fontSize: '11px', color: C.muted }}>by {p.proposedBy.name} · {new Date(p.createdAt).toLocaleDateString()}</p>
             </div>
             <span style={{ fontSize: '11px', fontWeight: 700, padding: '2px 7px', borderRadius: '99px', background: PS[p.status]?.bg, color: PS[p.status]?.color }}>{p.status}</span>
           </div>
           <p style={{ margin: '8px 0 0', fontSize: '13px', color: C.text, lineHeight: 1.5 }}>{p.description}</p>
+          {p.rejectionNote && <p style={{ margin: '5px 0 0', fontSize: '11px', color: C.muted, fontStyle: 'italic' }}>Note: {p.rejectionNote}</p>}
           {isCertifier && p.status === 'OPEN' && (
             <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
-              <button onClick={() => resolve(p.id, 'INCORPORATED')}
-                style={{ padding: '4px 12px', background: 'rgba(5,150,105,.12)', color: C.success, border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}>
-                Incorporate
-              </button>
-              <button onClick={() => resolve(p.id, 'REJECTED')}
-                style={{ padding: '4px 12px', background: 'rgba(220,38,38,.08)', color: C.error, border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}>
-                Reject
-              </button>
+              <button onClick={() => resolve(p.id, 'INCORPORATED')} style={{ padding: '4px 12px', background: 'rgba(5,150,105,.12)', color: C.success, border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}>Incorporate</button>
+              <button onClick={() => resolve(p.id, 'REJECTED')}     style={{ padding: '4px 12px', background: 'rgba(220,38,38,.08)', color: C.error, border: 'none', borderRadius: '6px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}>Reject</button>
             </div>
           )}
         </div>
