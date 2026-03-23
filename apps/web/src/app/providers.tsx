@@ -137,10 +137,7 @@ function Sidebar({ user, onLogout }: { user: User | null; onLogout: () => void }
       <div style={{ padding: expanded ? '12px 14px' : '12px 0', borderBottom: '1px solid rgba(255,255,255,.15)', display: 'flex', alignItems: 'center', justifyContent: expanded ? 'space-between' : 'center' }}>
         {expanded && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-            {(globalThis as any).RG_LOGO
-              ? <img src={(globalThis as any).RG_LOGO} alt="Rainier Gardens" style={{ height: '32px', objectFit: 'contain', flexShrink: 0 }} />
-              : <div><p style={{ margin: 0, color: 'white', fontWeight: 800, fontSize: '12px', whiteSpace: 'nowrap' }}>RG Standards</p><p style={{ margin: 0, color: 'rgba(255,255,255,.55)', fontSize: '10px' }}>Certification Studio</p></div>
-            }
+            <img src="/logo.png" alt="Rainier Gardens" style={{ height: '32px', objectFit: 'contain', flexShrink: 0 }} />
           </div>
         )}
         <button onClick={() => setExpanded(e => !e)}

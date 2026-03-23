@@ -16,6 +16,7 @@ WORKDIR /app
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 COPY --from=build --chown=nodejs:nodejs /app/.next/standalone ./
 COPY --from=build --chown=nodejs:nodejs /app/.next/static ./.next/static
+COPY --from=build --chown=nodejs:nodejs /app/public ./public
 USER nodejs
 ENV NODE_ENV=production PORT=3011
 EXPOSE 3011
